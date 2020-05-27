@@ -5,7 +5,7 @@
 
 **IPSearch_0.py**
 
-详细介绍请参考
+详细介绍请参考https://blog.csdn.net/dataformydream/article/details/106191510
 
 ### 使用方法
 
