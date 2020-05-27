@@ -15,15 +15,11 @@
 from IPSearch_0 import *
 ```
 
-![点击并拖拽以移动](data:image/gif;base64,R0lGODlhAQABAPABAP///wAAACH5BAEKAAAALAAAAAABAAEAAAICRAEAOw==)
-
 或者
 
 ```python
 from IPSearch_0 import proxies,header_add,get_response,add_test,search_proxies
 ```
-
-![点击并拖拽以移动](data:image/gif;base64,R0lGODlhAQABAPABAP///wAAACH5BAEKAAAALAAAAAABAAEAAAICRAEAOw==)
 
 #### **2、各变量用途和用法** 
 
@@ -42,8 +38,6 @@ from xm_sign import get_sign  # 要传入headers的函数
 header_add['xm-sign']=get_sign
 header_add['Referer']='https://www.ximalaya.com/'
 ```
-
-![点击并拖拽以移动](data:image/gif;base64,R0lGODlhAQABAPABAP///wAAACH5BAEKAAAALAAAAAABAAEAAAICRAEAOw==)
 
 **get_response(url)**
 
@@ -65,8 +59,6 @@ print(response.status_code)
 print(response.request.headers)
 ```
 
-![点击并拖拽以移动](data:image/gif;base64,R0lGODlhAQABAPABAP///wAAACH5BAEKAAAALAAAAAABAAEAAAICRAEAOw==)
-
  **add_test(url,test_list=None)**
 
 用来检测test_list中的代理，是否对URL可用（能否请求成功），可用则添加进proxies，若没有要检测的ip池可忽略。
@@ -80,8 +72,6 @@ add_test('http://www.baidu.com',test_list)
 # 测试proxies中ip是否仍有效,不指定test_list
 add_test('http://www.baidu.com')
 ```
-
-![点击并拖拽以移动](data:image/gif;base64,R0lGODlhAQABAPABAP///wAAACH5BAEKAAAALAAAAAABAAEAAAICRAEAOw==)
 
 **search_proxies(url,need_number=30,test_flag=True)**
 
