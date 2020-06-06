@@ -1,7 +1,13 @@
 # IPsearch
-这是一个自动查找免费可用IP代理的python脚本，内部封装实现爬虫的前期工作。
+这是一个自动查找免费可用IP代理的python脚本，内部封装实现爬虫的前期工作，第
 
-## 第一版本
+## 最新版本
+
+IPSearch.py
+
+详细介绍请参考https://blog.csdn.net/dataformydream/article/details/106573353
+
+## 之前版本
 
 **IPSearch_0.py**
 
