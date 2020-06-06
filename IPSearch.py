@@ -65,7 +65,7 @@ class IPSearch:
             else:
                 raise KeyError
         except Exception as e:
-            print(f'未找到代理,使用本机IP：{e[:10]}...\n')
+            print(f'未找到代理,使用本机IP：{e}')
             proxy_dictionary = None
         return proxy_dictionary
 
@@ -82,11 +82,15 @@ class IPSearch:
         return header
 
     # 请求方法，检查是否有referer ,x-sign等，也是消费者模型,保证请求成功为止
-    def requests(self, url, proxy_type="all", timeout=5, headers_add=None):
+    def requests(self, url, proxy_type="all", timeout=5, cookies=None, header_add=None):
         succeed_flag = False
         headers = self.random_header()
-        if headers_add:
-            for key, value in self.header_add.items():
+        if not cookies:
+            cookies = self.cookies
+        if not header_add:
+            header_add = self.header_add
+        if header_add:
+            for key, value in header_add.items():
                 if hasattr(value, '__call__'):
                     headers[key] = value()
                 else:
@@ -95,8 +99,11 @@ class IPSearch:
             proxy_dictionary = self.random_proxy(proxy_type)
             try:
                 response = requests.get(url, headers=headers, proxies=proxy_dictionary,
-                                        cookies=self.cookies, timeout=timeout)
+                                        cookies=cookies, timeout=timeout)
                 response.encoding = response.apparent_encoding
+                while not response:
+                    time.sleep(1)
+                    raise ValueError
                 succeed_flag = True
                 return response
             except Exception as e:
@@ -127,8 +134,10 @@ class IPSearch:
             with open(os.path.join(json_path, 'IP.json'), 'r', encoding='utf-8') as f:
                 ip_dictionary = json.load(f)
                 print(ip_dictionary[0])
-            self.add_ip_list(self.proxies, ip_dictionary[0]['http'] + ip_dictionary[0]['https'])
-            self.add_ip_list(self.del_proxies, ip_dictionary[1]['http'] + ip_dictionary[1]['https'])
+            self.proxies['http'] = ip_dictionary[0]['http']
+            self.proxies['https'] = ip_dictionary[0]['https']
+            self.del_proxies['http'] = ip_dictionary[1]['http']
+            self.del_proxies['https'] = ip_dictionary[1]['https']
             print('本地代理已导入到IP池...')
         else:
             print('本地没有备份!')
@@ -152,11 +161,13 @@ class IPSearch:
     # 检查ip列表是否可用，多线程,若不输入要测试的列表，默认测试proxies和del_proxies全部一次
     def ip_list_test(self, url, test_list=None, workers=4, timeout=1):
         if not test_list:
-            test_list = list(
-                self.proxies['http'] + self.proxies['https'] + self.del_proxies['http'] + self.del_proxies['https'])
+            test_list_now = list(set(
+                self.proxies['http'] + self.proxies['https'] + self.del_proxies['http'] + self.del_proxies['https']))
+        else:
+            test_list_now = test_list
         # 考虑初始为零的情况
         if len(test_list) != 0:
-            print(f'要检测的IP共有{len(test_list)}个,开始测试...')
+            print(f'要检测的IP共有{len(test_list_now)}个,开始测试...')
             print(f'开始验证IP对网站[{url}]是否有效,时间较长，请等待...')
             with ThreadPoolExecutor(max_workers=workers) as thread_pool:
                 object_list = list()
@@ -182,23 +193,36 @@ class IPSearch:
         else:
             return [], []
 
-    # 去重，判断IP是否已经在proxies中,返回新有的IP
-    def choice_ip(self, add_list):
+    # 更新函数，从网页获取到的ip列表，去重和检测后更新进proxies并保存到本地，也可重新检测并覆盖更新本地列表
+    def update(self, un_test_list=None, re_update=False):
         choice_list = []
-        for unit in add_list:
-            if unit not in str(self.proxies) and unit not in str(self.del_proxies):
-                choice_list.append(unit)
-        return choice_list
-
-    # 将IP分类添加到proxies中,保存,去重功能
-    def add_ip_list(self, dictionary, _ip_list):
-        for unit_ip in _ip_list:
-            if unit_ip not in str(self.proxies) and unit_ip not in str(self.del_proxies):
-                if 'https' in unit_ip:
-                    dictionary['https'].append(unit_ip)
-                else:
-                    dictionary['http'].append(unit_ip)
-        return True
+        # 判断是否覆盖更新
+        if re_update:
+            choice_list = list(set(
+                self.proxies['http'] + self.proxies['https'] + self.del_proxies['http'] + self.del_proxies['https']))
+            self.proxies['http'] = []
+            self.proxies['https'] = []
+            self.del_proxies['http'] = []
+            self.del_proxies['https'] = []
+        # 若更新，进行去重，判断IP是否已经在proxies中,返回新有的IP
+        if un_test_list:
+            for unit in un_test_list:
+                if unit not in str(self.proxies) and unit not in str(self.del_proxies):
+                    choice_list.append(unit)
+        # 将去重后的IP进行检测
+        succeed_ip, failed_ip = self.ip_list_test(self.url, test_list=choice_list)
+        # 添加进IP池
+        for unit_ip in succeed_ip:
+            if 'https' in unit_ip:
+                self.proxies['https'].append(unit_ip)
+            else:
+                self.proxies['http'].append(unit_ip)
+        for unit_ip in failed_ip:
+            if 'https' in unit_ip:
+                self.del_proxies['https'].append(unit_ip)
+            else:
+                self.del_proxies['http'].append(unit_ip)
+        self.ip_download()
 
     # 单独的请求西刺网站
     def get_xi_ci(self, url=None):
@@ -221,10 +245,13 @@ class IPSearch:
         print(f'西刺获取成功，共有{len(pro_list)}个IP')
         return pro_list
 
-    # 单独的请求西拉网站,有
+    # 单独的请求西拉网站,有反爬
     def get_xi_la(self, url=None):
         pro_list = []
-        response = self.requests(url).text
+        # 西拉网站响应较慢，timeout设置时间较长
+        headers = self.random_header()
+        headers['Referer'] = 'http://www.xiladaili.com/'
+        response = requests.get(url, headers=headers, timeout=None).text
         pro_text = etree.HTML(response).xpath("//tbody/tr")
         for num in pro_text:
             ip_number = num.xpath('./td[1]/text()')[0]
@@ -265,36 +292,18 @@ class IPSearch:
         print(f'免费代理库获取成功，共有{len(pro_list)}个IP')
         return pro_list
 
-    # 更新函数，从网页获取到的ip，筛选后更新进proxies
-    def update(self, ip_list=None, test_flag=True):
-        if ip_list:
-            test_list = self.choice_ip(ip_list)
-        else:
-            test_list = self.proxies['https'] + self.proxies['http']
-        if test_flag:
-            succeed_ip, failed_ip = self.ip_list_test(self.url, test_list, timeout=1)
-        else:
-            succeed_ip = test_list
-            failed_ip = []
-        self.add_ip_list(self.proxies, succeed_ip)
-        self.add_ip_list(self.del_proxies, failed_ip)
-        self.ip_download()
-
     # 目前可用的IP数
-    def succeed_number(self):
+    def number(self):
         succeed_http_number = len(self.proxies['http'])
         succeed_https_number = len(self.proxies['https'])
-        return succeed_http_number + succeed_https_number
+        failed_http_number = len(self.del_proxies['http'])
+        failed_https_number = len(self.del_proxies['https'])
+        return [succeed_http_number + succeed_https_number, failed_https_number + failed_http_number]
 
-    # 获取IP列表并实时维护,默认先测试
-    def search_realtime(self, url=None, need_number=30):
-        if not url:
-            url = self.url
-        self.ip_load()  # 查询本地
-        succeed, failed = self.ip_list_test(url)  # 检查本地，并重新更新
-        self.add_ip_list(self.proxies, succeed)
-        self.add_ip_list(self.del_proxies, failed)
-        self.ip_download()  # 更新一次备份
+    # 获取IP列表并实时维护
+    def search_realtime(self, need_number=30):
+        self.ip_load()  # 查询本地并导入
+        self.update(re_update=True)  # 检测一次
         # 定义一个实时线程类并行交互爬取IP
         out_class = self  # 继承外部类
 
@@ -305,40 +314,40 @@ class IPSearch:
                 self.out = out_class  # 导入外部类参数和方法
 
             def run(self):
-                print(f"可用IP数为{self.out.succeed_number()}")
-                if self.out.succeed_number() >= need_number:
-                    print(f'本地IP数已满足要求{need_number}，子线程休眠')
+                print(f"可用IP数为{self.out.number()[0]}")
+                if self.out.number()[0] >= need_number:
+                    print(f'本地IP数{self.out.number()[0]}已满足要求{need_number}，子线程休眠')
                 while True:
                     page = [1, 1, 1]
-                    while self.out.succeed_number() < need_number:
-                        print(f"子线程|可用IP数为{self.out.succeed_number()},小于最低设置{need_number}，更新中...")
+                    while self.out.number()[0] < need_number:
+                        print(f"子线程|可用IP数为{self.out.number()[0]},小于最低设置{need_number}，更新中...")
                         print(f'子线程|获取中：西刺第{page[0]}页...')
                         ip_list_0 = self.out.get_xi_ci(self.out.root_url[0] + str(page[0]))
                         self.out.update(ip_list_0)
                         page[0] += 1
                         # 不够则爬取另外网站
-                        if self.out.succeed_number() < need_number:
-                            print(f"子线程|可用IP数为{self.out.succeed_number()},小于最低设置{need_number}，更新中...")
+                        if self.out.number()[0] < need_number:
+                            print(f"子线程|可用IP数为{self.out.number()[0]},小于最低设置{need_number}，更新中...")
                             print(f'子线程|获取中：免费代理库第{page[2]}页...')
                             ip_list_2 = self.out.get_free(self.out.root_url[2].replace('page=1', f'page={page[2]}'))
                             self.out.update(ip_list_2)
                             page[2] += 1
                         else:
-                            print(f'本地IP数已满足要求{need_number}，子线程休眠')
+                            print(f'本地IP数{self.out.number()[0]}已满足要求{need_number}，子线程休眠')
                             break
                         # 不够则爬取另外网站
-                        if self.out.succeed_number() < need_number:
-                            print(f"子线程|可用IP数为{self.out.succeed_number()},小于最低设置{need_number}，更新中...")
+                        if self.out.number()[0] < need_number:
+                            print(f"子线程|可用IP数为{self.out.number()[0]},小于最低设置{need_number}，更新中...")
                             print(f'子线程|获取中：西拉第{page[1]}页...')
                             ip_list_1 = self.out.get_xi_la(self.out.root_url[1] + str(page[1]))
                             self.out.update(ip_list_1)
                             page[1] += 1
                         else:
-                            print(f'本地IP数已满足要求{need_number}，子线程休眠')
+                            print(f'本地IP数{self.out.number()[0]}已满足要求{need_number}，子线程休眠')
                             break
                     msg = self._queue.get()
                     if isinstance(msg, str) and msg == 'quit':
-                        print("爬取成功，停止维护IP池，结束子进程")
+                        print(f"爬取成功,本地IP数{self.out.number()[0]}，停止维护IP池，结束子进程")
                         break
 
         search = SearchRealtime(self._stop_message)
@@ -352,8 +361,7 @@ class IPSearch:
 if __name__ == "__main__":
     test_url = 'https://www.baidu.com/'
     # test_url = 'https://www.ximalaya.com/'
-    # ip = IPSearch(Connection='close')
     ip = IPSearch(test_url)
-    ip.search_realtime(test_url, need_number=100)
-    print('\n主线程：结束')
+    ip.search_realtime(need_number=30)
     ip.stop_search()
+
